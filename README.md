@@ -14,15 +14,22 @@ Bei jedem Push baut GitHub automatisch eine APK:
 
 ## Lobby (jeder auf seinem Handy)
 
-Kein Server nötig: Das Handy, das die Lobby erstellt, ist selbst der Server.
+Kein eigener Server nötig.
 
-1. Einer tippt oben rechts auf **Lobby** → **Lobby erstellen**. Es erscheint ein QR-Code.
+1. Einer tippt oben rechts auf **Lobby** → **Lobby erstellen**.
+   Es erscheinen ein QR-Code und ein Code wie `KX7P`.
 2. Die anderen tippen auf **Lobby** → **Beitreten** und scannen den QR-Code
-   (oder tippen die angezeigte IP ein).
+   oder tippen den Code ein.
 3. Der Host wählt ein Spiel, alle Handys wechseln ins Spiel.
 
-Alle müssen im **selben WLAN** sein. Ohne WLAN macht der Host einen **Hotspot** an
-und die anderen verbinden sich damit (verbraucht keine mobilen Daten).
+**Übers Internet (Standard):** Jeder braucht Internet, egal ob WLAN oder mobile
+Daten – man muss nicht im selben Netz sein. Die Handys tauschen ihre Nachrichten
+über einen kostenlosen öffentlichen MQTT-Vermittler aus (`broker.hivemq.com`,
+siehe `lib/lobby/internet_transport.dart`). Die Spiellogik läuft trotzdem auf
+dem Handy des Hosts.
+
+**Ohne Internet:** „Lobby ohne Internet (WLAN/Hotspot)“. Dann müssen alle im
+selben WLAN oder im Hotspot des Hosts sein; das Host-Handy ist selbst der Server.
 
 ## Aufbau
 
@@ -34,7 +41,10 @@ lib/
   screens/home_screen.dart  Startseite: großes Spiel oben, Spiele-Reihen
   screens/players_sheet.dart  Spielerverwaltung (schwebender Button)
   screens/lobby_screens.dart  Lobby erstellen/beitreten, Lobby-Raum
-  lobby/lobby.dart          Netzwerk: HostLobby (WebSocket-Server) und ClientLobby
+  lobby/lobby.dart          Lobby-Logik: HostLobby und ClientLobby
+  lobby/transport.dart      Schnittstelle für die Verbindung + Codes
+  lobby/internet_transport.dart  Verbindung übers Internet (MQTT)
+  lobby/local_transport.dart     Verbindung im WLAN/Hotspot (WebSocket)
   widgets/game_art.dart     Spielgrafik aus Farbe + Icon, großer Titel
   games/
     game.dart               Beschreibung eines Spiels
@@ -62,3 +72,12 @@ Für `online` braucht es zwei Teile (siehe `impostor/impostor.dart`):
   `update()` schickt allen die neue Ansicht.
 - einen `builder`, der aus dieser Ansicht den Bildschirm baut und mit
   `view.send({...})` Aktionen an den Host schickt.
+
+## Tests
+
+```
+flutter test
+```
+
+Der Internet-Test braucht einen MQTT-Vermittler und läuft nur, wenn
+`MQTT_TEST_PORT` gesetzt ist, z. B. mit einem lokalen `amqtt`.

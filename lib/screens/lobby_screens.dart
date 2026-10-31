@@ -53,12 +53,14 @@ class _LobbyStartScreenState extends State<LobbyStartScreen> {
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(content: Text(text)));
 
-  Future<void> _create() async {
+  Future<void> _create({required bool internet}) async {
     final name = await _checkName();
     if (name == null || _busy) return;
     setState(() => _busy = true);
     try {
-      final lobby = await HostLobby.start(name);
+      final lobby = internet
+          ? await HostLobby.startInternet(name)
+          : await HostLobby.startLocal(name);
       if (!mounted) return;
       await Navigator.pushReplacement(
         context,
@@ -91,8 +93,8 @@ class _LobbyStartScreenState extends State<LobbyStartScreen> {
             const Icon(Icons.wifi_tethering, size: 72, color: Colors.white),
             const SizedBox(height: 16),
             const Text(
-              'Jeder spielt auf seinem eigenen Handy. Alle müssen im selben '
-              'WLAN sein – oder der Host macht einen Hotspot an.',
+              'Jeder spielt auf seinem eigenen Handy – egal ob mit WLAN '
+              'oder mobilen Daten.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white70, fontSize: 16),
             ),
@@ -111,7 +113,7 @@ class _LobbyStartScreenState extends State<LobbyStartScreen> {
             ),
             const SizedBox(height: 24),
             FilledButton.icon(
-              onPressed: _busy ? null : _create,
+              onPressed: _busy ? null : () => _create(internet: true),
               icon: const Icon(Icons.add_circle_outline),
               label: const Text('Lobby erstellen'),
               style: bigButtonStyle,
@@ -127,6 +129,13 @@ class _LobbyStartScreenState extends State<LobbyStartScreen> {
                 textStyle:
                     const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
               ),
+            ),
+            const SizedBox(height: 32),
+            TextButton.icon(
+              onPressed: _busy ? null : () => _create(internet: false),
+              icon: const Icon(Icons.wifi),
+              label: const Text('Lobby ohne Internet (WLAN/Hotspot)'),
+              style: TextButton.styleFrom(foregroundColor: Colors.white70),
             ),
           ],
         ),
@@ -146,26 +155,24 @@ class JoinScreen extends StatefulWidget {
 }
 
 class _JoinScreenState extends State<JoinScreen> {
-  final _ip = TextEditingController();
+  final _code = TextEditingController();
   bool _busy = false;
 
   @override
   void dispose() {
-    _ip.dispose();
+    _code.dispose();
     super.dispose();
   }
 
   Future<void> _connect(String code) async {
     if (_busy) return;
-    final target = parseJoinCode(code);
-    if (target == null) {
+    if (parseJoinCode(code) == null) {
       _snack('Ungültiger Code.');
       return;
     }
     setState(() => _busy = true);
     try {
-      final lobby =
-          await ClientLobby.join(target.hosts, target.port, widget.name);
+      final lobby = await ClientLobby.join(code, widget.name);
       if (!mounted) return;
       await Navigator.pushReplacement(
         context,
@@ -220,7 +227,7 @@ class _JoinScreenState extends State<JoinScreen> {
             ),
             const SizedBox(height: 24),
             const Text(
-              'Oder die IP des Hosts eintippen:',
+              'Oder den Code des Hosts eintippen:',
               style: TextStyle(color: Colors.white70),
             ),
             const SizedBox(height: 8),
@@ -228,11 +235,13 @@ class _JoinScreenState extends State<JoinScreen> {
               children: [
                 Expanded(
                   child: TextField(
-                    controller: _ip,
-                    keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true),
+                    controller: _code,
+                    textCapitalization: TextCapitalization.characters,
+                    autocorrect: false,
+                    style: const TextStyle(fontSize: 22, letterSpacing: 4),
                     decoration: InputDecoration(
-                      hintText: 'z. B. 192.168.0.23',
+                      hintText: 'z. B. KX7P',
+                      hintStyle: const TextStyle(letterSpacing: 4),
                       filled: true,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(16),
@@ -244,7 +253,7 @@ class _JoinScreenState extends State<JoinScreen> {
                 ),
                 const SizedBox(width: 10),
                 IconButton.filled(
-                  onPressed: _busy ? null : () => _connect(_ip.text),
+                  onPressed: _busy ? null : () => _connect(_code.text),
                   icon: const Icon(Icons.login),
                   iconSize: 28,
                 ),
@@ -476,13 +485,13 @@ class _JoinInfo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ip = host.addresses.firstOrNull;
+    final code = host.displayCode;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           children: [
-            if (ip == null)
+            if (code == null)
               const Text(
                 'Kein WLAN gefunden. Verbinde dich mit einem WLAN oder '
                 'mach einen Hotspot an und öffne die Lobby neu.',
@@ -493,25 +502,31 @@ class _JoinInfo extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
                 child: QrImageView(
                   data: host.joinCode,
-                  size: 220,
+                  size: 200,
                   backgroundColor: Colors.white,
                 ),
               ),
               const SizedBox(height: 16),
-              const Text(
-                'Zum Beitreten scannen',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 4),
-              SelectableText(
-                'IP: $ip',
+              Text(
+                host.isInternet ? 'Lobby-Code' : 'IP zum Beitreten',
                 style: const TextStyle(color: Colors.white70, fontSize: 16),
               ),
+              SelectableText(
+                code,
+                style: TextStyle(
+                  fontSize: host.isInternet ? 44 : 26,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: host.isInternet ? 8 : 1,
+                ),
+              ),
               const SizedBox(height: 8),
-              const Text(
-                'Alle im selben WLAN oder in deinem Hotspot.',
+              Text(
+                host.isInternet
+                    ? 'QR-Code scannen oder Code eintippen. '
+                        'Jeder braucht Internet (WLAN oder mobile Daten).'
+                    : 'Alle im selben WLAN oder in deinem Hotspot.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white54),
+                style: const TextStyle(color: Colors.white54),
               ),
             ],
           ],

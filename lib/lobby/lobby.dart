@@ -1,20 +1,18 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
 import '../games/game.dart';
 import '../games/registry.dart';
+import 'internet_transport.dart';
+import 'local_transport.dart';
+import 'transport.dart';
 
-/// Port, auf dem das Host-Handy die Lobby anbietet.
-const lobbyPort = 4040;
-
-const _qrPrefix = 'gruppenspiele:';
+export 'transport.dart';
 
 /// Eine Lobby aus Sicht dieses Handys – egal ob Host oder Mitspieler.
 ///
-/// Nachrichten (JSON über WebSocket):
+/// Nachrichten (JSON, über Internet oder WLAN – siehe transport.dart):
 /// - Mitspieler → Host: `join {name}`, `action {data}`
 /// - Host → Mitspieler: `welcome {id}`, `state {players, game, view}`,
 ///   `error {message}`
@@ -54,92 +52,42 @@ abstract class Lobby extends ChangeNotifier {
   }
 }
 
-class LobbyException implements Exception {
-  const LobbyException(this.message);
-
-  final String message;
-
-  @override
-  String toString() => message;
-}
-
-/// Inhalt des QR-Codes: alle Adressen des Hosts plus Port.
-String encodeJoinCode(List<String> addresses, int port) =>
-    '$_qrPrefix${addresses.join(',')}:$port';
-
-/// Liest einen QR-Code oder eine eingetippte IP. Gibt null zurück,
-/// wenn es keine gültige Angabe ist.
-({List<String> hosts, int port})? parseJoinCode(String input) {
-  var text = input.trim();
-  if (text.startsWith(_qrPrefix)) text = text.substring(_qrPrefix.length);
-  if (text.isEmpty) return null;
-
-  var port = lobbyPort;
-  final colon = text.lastIndexOf(':');
-  if (colon != -1) {
-    final parsed = int.tryParse(text.substring(colon + 1));
-    if (parsed == null) return null;
-    port = parsed;
-    text = text.substring(0, colon);
-  }
-  final hosts = text
-      .split(',')
-      .map((h) => h.trim())
-      .where((h) => InternetAddress.tryParse(h) != null)
-      .toList();
-  if (hosts.isEmpty) return null;
-  return (hosts: hosts, port: port);
-}
-
-/// IPv4-Adressen dieses Handys, WLAN/Hotspot-typische zuerst.
-Future<List<String>> localAddresses() async {
-  final interfaces =
-      await NetworkInterface.list(type: InternetAddressType.IPv4);
-  final result = [
-    for (final i in interfaces)
-      for (final a in i.addresses)
-        if (!a.isLoopback) a.address,
-  ];
-  int rank(String ip) => ip.startsWith('192.168.')
-      ? 0
-      : ip.startsWith('172.')
-          ? 1
-          : ip.startsWith('10.')
-              ? 2
-              : 3;
-  result.sort((a, b) => rank(a).compareTo(rank(b)));
-  return result;
-}
-
-/// Lobby auf dem eigenen Handy: startet einen kleinen WebSocket-Server,
-/// verwaltet die Spieler und lässt die Spiellogik laufen.
+/// Lobby auf dem eigenen Handy: verwaltet die Spieler und lässt die
+/// Spiellogik laufen.
 class HostLobby extends Lobby {
-  HostLobby._(this._server, this.addresses, String name) {
-    _players.add(LobbyPlayer(myId, name));
-    _server.listen(_onRequest);
+  HostLobby(this._transport, String name) {
+    _players.add(LobbyPlayer(myId, name.trim()));
+    _transport
+      ..onMessage = _onMessage
+      ..onDisconnect = _onDisconnect
+      ..onLost = () {
+        _closedReason = 'Verbindung verloren. Hast du noch Internet?';
+        notifyListeners();
+      };
   }
 
-  static Future<HostLobby> start(String name, {int port = lobbyPort}) async {
-    final HttpServer server;
-    try {
-      server = await HttpServer.bind(InternetAddress.anyIPv4, port);
-    } on SocketException {
-      throw const LobbyException('Lobby konnte nicht gestartet werden.');
-    }
-    return HostLobby._(server, await localAddresses(), name.trim());
-  }
+  /// Lobby übers Internet: jeder kann in einem anderen Netz sein.
+  static Future<HostLobby> startInternet(String name) async =>
+      HostLobby(await InternetHostTransport.start(), name);
 
-  final HttpServer _server;
+  /// Lobby im WLAN/Hotspot: ohne Internet, alle im selben Netz.
+  static Future<HostLobby> startLocal(String name) async =>
+      HostLobby(await LocalHostTransport.start(), name);
 
-  /// Adressen, unter denen die anderen dieses Handy erreichen.
-  final List<String> addresses;
+  final HostTransport _transport;
 
-  int get port => _server.port;
+  bool get isInternet => _transport is InternetHostTransport;
 
-  String get joinCode => encodeJoinCode(addresses, port);
+  /// Inhalt des QR-Codes.
+  String get joinCode => _transport.joinCode;
+
+  /// Code oder IP zum Abtippen (null: kein Netz gefunden).
+  String? get displayCode => _transport.displayCode;
 
   final _players = <LobbyPlayer>[];
-  final _sockets = <String, WebSocket>{};
+
+  /// Verbindung → Spieler-ID.
+  final _connToPlayer = <String, String>{};
   int _nextId = 1;
   String? _gameName;
   OnlineSession? _session;
@@ -163,52 +111,37 @@ class HostLobby extends Lobby {
   @override
   String? get closedReason => _closedReason;
 
-  Future<void> _onRequest(HttpRequest request) async {
-    if (!WebSocketTransformer.isUpgradeRequest(request)) {
-      request.response.statusCode = HttpStatus.notFound;
-      await request.response.close();
-      return;
-    }
-    final socket = await WebSocketTransformer.upgrade(request);
-    socket.pingInterval = const Duration(seconds: 5);
-    String? id;
-
-    socket.listen(
-      (raw) {
-        final Map<String, dynamic> msg;
-        try {
-          msg = jsonDecode(raw as String) as Map<String, dynamic>;
-        } catch (_) {
+  void _onMessage(String conn, Map<String, dynamic> msg) {
+    final id = _connToPlayer[conn];
+    switch (msg['type']) {
+      case 'join' when id == null:
+        if (_gameName != null) {
+          _transport
+            ..send(conn, {
+              'type': 'error',
+              'message': 'Es läuft gerade ein Spiel. Warte, bis es vorbei ist.',
+            })
+            ..drop(conn);
           return;
         }
-        switch (msg['type']) {
-          case 'join' when id == null:
-            if (_gameName != null) {
-              _send(socket, {
-                'type': 'error',
-                'message': 'Es läuft gerade ein Spiel. Warte, bis es vorbei ist.',
-              });
-              socket.close();
-              return;
-            }
-            final newId = 'p${_nextId++}';
-            id = newId;
-            _players.add(LobbyPlayer(newId, _uniqueName('${msg['name']}')));
-            _sockets[newId] = socket;
-            _send(socket, {'type': 'welcome', 'id': newId});
-            _broadcast();
-          case 'action' when id != null:
-            final data = msg['data'];
-            if (data is Map) {
-              _session?.onAction(id!, Map<String, dynamic>.from(data));
-            }
+        final newId = 'p${_nextId++}';
+        _connToPlayer[conn] = newId;
+        _players.add(LobbyPlayer(newId, _uniqueName('${msg['name']}')));
+        _transport.send(conn, {'type': 'welcome', 'id': newId});
+        _broadcast();
+      case 'action' when id != null:
+        final data = msg['data'];
+        if (data is Map) {
+          _session?.onAction(id, Map<String, dynamic>.from(data));
         }
-      },
-      onDone: () {
-        if (id != null) _removePlayer(id!);
-      },
-      onError: (_) {},
-    );
+    }
+  }
+
+  void _onDisconnect(String conn) {
+    final id = _connToPlayer.remove(conn);
+    if (id == null) return;
+    _players.removeWhere((p) => p.id == id);
+    _broadcast();
   }
 
   String _uniqueName(String wanted) {
@@ -220,12 +153,6 @@ class HostLobby extends Lobby {
       name = '$base $i';
     }
     return name;
-  }
-
-  void _removePlayer(String id) {
-    _sockets.remove(id);
-    _players.removeWhere((p) => p.id == id);
-    _broadcast();
   }
 
   void startGame(Game game) {
@@ -248,8 +175,8 @@ class HostLobby extends Lobby {
 
   void _broadcast() {
     final players = [for (final p in _players) p.toJson()];
-    _sockets.forEach((id, socket) {
-      _send(socket, {
+    _connToPlayer.forEach((conn, id) {
+      _transport.send(conn, {
         'type': 'state',
         'players': players,
         'game': _gameName,
@@ -259,72 +186,68 @@ class HostLobby extends Lobby {
     notifyListeners();
   }
 
-  void _send(WebSocket socket, Map<String, dynamic> msg) {
-    if (socket.readyState == WebSocket.open) socket.add(jsonEncode(msg));
-  }
-
   @override
   Future<void> leave() async {
-    _closedReason = 'Lobby geschlossen.';
-    for (final socket in _sockets.values.toList()) {
-      await socket.close();
-    }
-    _sockets.clear();
-    await _server.close(force: true);
+    _closedReason ??= 'Lobby geschlossen.';
+    await _transport.close();
   }
 }
 
 /// Verbindung zur Lobby eines anderen Handys.
 class ClientLobby extends Lobby {
-  ClientLobby._(this._socket) {
-    _socket.listen(
-      _onMessage,
-      onDone: () {
+  ClientLobby(this._transport) {
+    _transport
+      ..onMessage = _onMessage
+      ..onDone = () {
         if (!_welcome.isCompleted) {
           _welcome.completeError(
               const LobbyException('Verbindung zum Host abgebrochen.'));
         }
-        _closedReason ??= 'Verbindung zum Host verloren.';
+        _closedReason ??= 'Der Host hat die Lobby verlassen.';
         notifyListeners();
-      },
-      onError: (_) {},
-    );
+      };
   }
 
-  /// Probiert alle Adressen des Hosts durch, bis eine klappt.
-  static Future<ClientLobby> join(
-    List<String> hosts,
-    int port,
-    String name,
-  ) async {
-    LobbyException? error;
-    for (final host in hosts) {
-      final WebSocket socket;
-      try {
-        socket = await WebSocket.connect('ws://$host:$port')
-            .timeout(const Duration(seconds: 4));
-      } catch (_) {
-        continue;
-      }
-      socket.pingInterval = const Duration(seconds: 5);
-      final lobby = ClientLobby._(socket);
-      socket.add(jsonEncode({'type': 'join', 'name': name.trim()}));
-      try {
-        await lobby._welcome.future.timeout(const Duration(seconds: 5));
-        return lobby;
-      } on LobbyException catch (e) {
-        error = e;
-        await socket.close();
-      } on TimeoutException {
-        await socket.close();
-      }
+  /// Tritt einer Lobby bei. [code] ist ein Lobby-Code, QR-Inhalt oder IP.
+  static Future<ClientLobby> join(String code, String name) async {
+    final target = parseJoinCode(code);
+    if (target == null) throw const LobbyException('Ungültiger Code.');
+    return joinTarget(target, name);
+  }
+
+  static Future<ClientLobby> joinTarget(
+    JoinTarget target,
+    String name, {
+    Future<ClientTransport?> Function(JoinTarget target)? connect,
+  }) async {
+    final transport = await (connect ?? _connect)(target);
+    if (transport == null) {
+      throw const LobbyException(
+          'Lobby nicht gefunden. Seid ihr im selben WLAN oder Hotspot?');
     }
-    throw error ??
-        const LobbyException(
-            'Lobby nicht gefunden. Seid ihr im selben WLAN oder Hotspot?');
+    final lobby = ClientLobby(transport);
+    transport.send({'type': 'join', 'name': name.trim()});
+    try {
+      await lobby._welcome.future.timeout(const Duration(seconds: 8));
+      return lobby;
+    } on TimeoutException {
+      await transport.close();
+      throw LobbyException(target is InternetTarget
+          ? 'Keine Lobby mit dem Code ${target.code} gefunden.'
+          : 'Der Host antwortet nicht.');
+    } on LobbyException {
+      await transport.close();
+      rethrow;
+    }
   }
 
-  final WebSocket _socket;
+  static Future<ClientTransport?> _connect(JoinTarget target) =>
+      switch (target) {
+        InternetTarget() => InternetClientTransport.connect(target),
+        LocalTarget() => LocalClientTransport.connect(target),
+      };
+
+  final ClientTransport _transport;
   final _welcome = Completer<void>();
   String _myId = '';
   List<LobbyPlayer> _players = const [];
@@ -350,18 +273,12 @@ class ClientLobby extends Lobby {
   @override
   String? get closedReason => _closedReason;
 
-  void _onMessage(dynamic raw) {
-    final Map<String, dynamic> msg;
-    try {
-      msg = jsonDecode(raw as String) as Map<String, dynamic>;
-    } catch (_) {
-      return;
-    }
+  void _onMessage(Map<String, dynamic> msg) {
     switch (msg['type']) {
-      case 'welcome':
+      case 'welcome' when !_welcome.isCompleted:
         _myId = msg['id'] as String;
-        if (!_welcome.isCompleted) _welcome.complete();
-      case 'state':
+        _welcome.complete();
+      case 'state' when _welcome.isCompleted:
         _players = [
           for (final p in msg['players'] as List)
             LobbyPlayer.fromJson(Map<String, dynamic>.from(p as Map)),
@@ -381,15 +298,12 @@ class ClientLobby extends Lobby {
   }
 
   @override
-  void sendAction(Map<String, dynamic> action) {
-    if (_socket.readyState == WebSocket.open) {
-      _socket.add(jsonEncode({'type': 'action', 'data': action}));
-    }
-  }
+  void sendAction(Map<String, dynamic> action) =>
+      _transport.send({'type': 'action', 'data': action});
 
   @override
   Future<void> leave() async {
-    _closedReason = 'Lobby verlassen.';
-    await _socket.close();
+    _closedReason ??= 'Lobby verlassen.';
+    await _transport.close();
   }
 }
