@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Lobby: Verbindung zwischen den Handys im WLAN -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- QR-Code der Lobby scannen -->
+    <uses-permission android:name="android.permission.CAMERA" />
     <application
         android:label="Gruppenspiele"
         android:name="${applicationName}"

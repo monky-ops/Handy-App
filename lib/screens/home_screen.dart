@@ -5,11 +5,22 @@ import '../games/registry.dart';
 import '../state/players.dart';
 import '../state/recent_games.dart';
 import '../widgets/game_art.dart';
+import 'lobby_screens.dart';
 import 'players_sheet.dart';
 
+void openLobby(BuildContext context) => Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const LobbyStartScreen()),
+    );
+
 /// Startet ein Spiel, wenn genug Spieler da sind, und merkt es sich
-/// unter „Zuletzt gespielt“.
+/// unter „Zuletzt gespielt“. Spiele nur für die Lobby öffnen die Lobby.
 void openGame(BuildContext context, Game game) {
+  final builder = game.builder;
+  if (builder == null) {
+    openLobby(context);
+    return;
+  }
   final players = PlayersScope.of(context);
   if (players.count < game.minPlayers) {
     ScaffoldMessenger.of(context)
@@ -31,7 +42,7 @@ void openGame(BuildContext context, Game game) {
   Navigator.push(
     context,
     MaterialPageRoute(
-      builder: (context) => game.builder(context, players.names),
+      builder: (context) => builder(context, players.names),
     ),
   );
 }
@@ -124,6 +135,11 @@ class _HeroState extends State<_Hero> {
               ),
             ),
           ),
+          Positioned(
+            right: 16,
+            top: top + 14,
+            child: const _LobbyButton(),
+          ),
           if (allGames.length > 1)
             Positioned(
               left: 0,
@@ -190,7 +206,10 @@ class _HeroPage extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-              _PlayButton(onPressed: () => openGame(context, game)),
+              _PlayButton(
+                label: game.builder == null ? 'In der Lobby spielen' : 'Spielen',
+                onPressed: () => openGame(context, game),
+              ),
             ],
           ),
         ),
@@ -227,8 +246,9 @@ class _Badge extends StatelessWidget {
 }
 
 class _PlayButton extends StatelessWidget {
-  const _PlayButton({required this.onPressed});
+  const _PlayButton({required this.label, required this.onPressed});
 
+  final String label;
   final VoidCallback onPressed;
 
   @override
@@ -245,7 +265,7 @@ class _PlayButton extends StatelessWidget {
       child: FilledButton.icon(
         onPressed: onPressed,
         icon: const Icon(Icons.play_arrow_rounded, size: 30),
-        label: const Text('Spielen'),
+        label: Text(label),
         style: FilledButton.styleFrom(
           backgroundColor: const Color(0xFF6B8FD6),
           foregroundColor: Colors.white,
@@ -385,7 +405,8 @@ class _GameCard extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        'ab ${game.minPlayers} Spieler',
+                        'ab ${game.minPlayers} Spieler'
+                        '${game.online != null ? ' · Lobby' : ''}',
                         style: const TextStyle(
                           color: Colors.white70,
                           fontSize: 12,
@@ -444,6 +465,43 @@ class _PlayersButton extends StatelessWidget {
                 const Icon(Icons.groups_rounded, color: Colors.white, size: 30),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Button oben rechts: öffnet die Lobby (jeder auf seinem Handy).
+class _LobbyButton extends StatelessWidget {
+  const _LobbyButton();
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black.withAlpha(90),
+      shape: StadiumBorder(
+        side: BorderSide(color: Colors.white.withAlpha(60)),
+      ),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: () => openLobby(context),
+        child: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.wifi_tethering, color: Colors.white, size: 22),
+              SizedBox(width: 8),
+              Text(
+                'Lobby',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
           ),
         ),
       ),

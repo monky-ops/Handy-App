@@ -77,6 +77,14 @@ class GameArt extends StatelessWidget {
   }
 }
 
+/// Großer blauer Button im Stil der App (z. B. „Spielen“).
+final bigButtonStyle = FilledButton.styleFrom(
+  backgroundColor: const Color(0xFF6B8FD6),
+  foregroundColor: Colors.white,
+  padding: const EdgeInsets.symmetric(vertical: 18),
+  textStyle: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+);
+
 /// Großer, fetter Titel mit schwarzer Umrandung.
 class OutlinedTitle extends StatelessWidget {
   const OutlinedTitle(this.text, {super.key, this.fontSize = 64});

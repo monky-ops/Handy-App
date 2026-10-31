@@ -1,6 +1,14 @@
 import 'package:flutter/material.dart';
 
+import 'online.dart';
+
+export 'online.dart';
+
 /// Beschreibt ein Spiel für die Spieleauswahl.
+///
+/// Ein Spiel kann zwei Modi haben (mindestens einen):
+/// - [builder]: ein Handy, das herumgereicht wird.
+/// - [online]: jeder spielt in der Lobby auf seinem eigenen Handy.
 ///
 /// Neues Spiel hinzufügen:
 /// 1. Ordner unter `lib/games/<spielname>/` anlegen.
@@ -12,22 +20,26 @@ class Game {
     required this.description,
     required this.icon,
     required this.color,
-    required this.builder,
+    this.builder,
+    this.online,
     this.minPlayers = 1,
     this.isNew = false,
-  });
+  }) : assert(builder != null || online != null);
 
   final String name;
   final String description;
   final IconData icon;
   final Color color;
 
-  /// Wie viele Spieler mindestens eingetragen sein müssen.
+  /// Wie viele Spieler mindestens dabei sein müssen.
   final int minPlayers;
 
   /// Zeigt das Abzeichen „NEU“ auf der Startseite.
   final bool isNew;
 
-  /// Baut den Spiel-Screen. Bekommt die aktuelle Spielerliste.
-  final Widget Function(BuildContext context, List<String> players) builder;
+  /// Ein-Handy-Modus: baut den Spiel-Screen. Bekommt die Spielerliste.
+  final Widget Function(BuildContext context, List<String> players)? builder;
+
+  /// Lobby-Modus: jeder Spieler auf seinem eigenen Handy.
+  final OnlineGame? online;
 }
