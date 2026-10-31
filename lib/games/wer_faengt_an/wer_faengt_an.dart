@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import '../../widgets/game_art.dart';
 import '../game.dart';
 
 /// Beispielspiel und Vorlage für neue Spiele:
@@ -12,6 +13,7 @@ const werFaengtAn = Game(
   icon: Icons.casino,
   color: Colors.orange,
   minPlayers: 2,
+  isNew: true,
   builder: _build,
 );
 
@@ -48,44 +50,74 @@ class _WerFaengtAnScreenState extends State<WerFaengtAnScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Wer fängt an?')),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            children: [
-              Expanded(
-                child: Center(
-                  child: AnimatedDefaultTextStyle(
-                    duration: const Duration(milliseconds: 150),
-                    style: theme.textTheme.displayMedium!.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: _rolling
-                          ? theme.colorScheme.onSurfaceVariant
-                          : theme.colorScheme.primary,
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(backgroundColor: Colors.transparent),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          const GameArt(game: werFaengtAn, iconAlignment: Alignment(0, -0.6)),
+          const ColoredBox(color: Color(0x88000000)),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  Expanded(
+                    child: Center(
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 150),
+                        opacity: _rolling ? 0.6 : 1,
+                        child: _current == null
+                            ? const Text(
+                                'Tippe auf Auslosen',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 22,
+                                ),
+                              )
+                            : FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: OutlinedTitle(_current!, fontSize: 72),
+                              ),
+                      ),
                     ),
-                    textAlign: TextAlign.center,
-                    child: Text(_current ?? 'Tippe auf Auslosen'),
                   ),
-                ),
-              ),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _rolling ? null : _roll,
-                  icon: const Icon(Icons.casino),
-                  label: const Text('Auslosen'),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 18),
-                    textStyle: theme.textTheme.titleMedium,
+                  if (_current != null && !_rolling)
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 24),
+                      child: Text(
+                        'fängt an!',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: _rolling ? null : _roll,
+                      icon: const Icon(Icons.casino, size: 28),
+                      label: Text(_current == null ? 'Auslosen' : 'Nochmal'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF6B8FD6),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 18),
+                        textStyle: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

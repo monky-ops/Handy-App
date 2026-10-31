@@ -2,40 +2,47 @@ import 'package:flutter/material.dart';
 
 import 'screens/home_screen.dart';
 import 'state/players.dart';
+import 'state/recent_games.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final players = Players();
-  await players.load();
-  runApp(GruppenspieleApp(players: players));
+  final recent = RecentGames();
+  await Future.wait([players.load(), recent.load()]);
+  runApp(GruppenspieleApp(players: players, recent: recent));
 }
 
 class GruppenspieleApp extends StatelessWidget {
-  const GruppenspieleApp({super.key, required this.players});
+  const GruppenspieleApp({
+    super.key,
+    required this.players,
+    required this.recent,
+  });
 
   final Players players;
+  final RecentGames recent;
 
   @override
   Widget build(BuildContext context) {
-    const seed = Colors.deepPurple;
+    final scheme = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF6B8FD6),
+      brightness: Brightness.dark,
+    ).copyWith(surface: Colors.black);
+
     return PlayersScope(
       players: players,
-      child: MaterialApp(
-        title: 'Gruppenspiele',
-        debugShowCheckedModeBanner: false,
-        themeMode: ThemeMode.system,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: seed),
-          useMaterial3: true,
-        ),
-        darkTheme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: seed,
-            brightness: Brightness.dark,
+      child: RecentGamesScope(
+        recent: recent,
+        child: MaterialApp(
+          title: 'Gruppenspiele',
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData(
+            colorScheme: scheme,
+            scaffoldBackgroundColor: Colors.black,
+            useMaterial3: true,
           ),
-          useMaterial3: true,
+          home: const HomeScreen(),
         ),
-        home: const HomeScreen(),
       ),
     );
   }

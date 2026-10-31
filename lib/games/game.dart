@@ -14,6 +14,7 @@ class Game {
     required this.color,
     required this.builder,
     this.minPlayers = 1,
+    this.isNew = false,
   });
 
   final String name;
@@ -23,6 +24,9 @@ class Game {
 
   /// Wie viele Spieler mindestens eingetragen sein müssen.
   final int minPlayers;
+
+  /// Zeigt das Abzeichen „NEU“ auf der Startseite.
+  final bool isNew;
 
   /// Baut den Spiel-Screen. Bekommt die aktuelle Spielerliste.
   final Widget Function(BuildContext context, List<String> players) builder;

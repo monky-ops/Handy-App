@@ -18,7 +18,10 @@ Bei jedem Push baut GitHub automatisch eine APK:
 lib/
   main.dart                 App-Start und Theme
   state/players.dart        Spielerliste (wird auf dem Handy gespeichert)
-  screens/home_screen.dart  Startbildschirm: Spieler + Spieleauswahl
+  state/recent_games.dart   Zuletzt gespielte Spiele
+  screens/home_screen.dart  Startseite: großes Spiel oben, Spiele-Reihen
+  screens/players_sheet.dart  Spielerverwaltung (schwebender Button)
+  widgets/game_art.dart     Spielgrafik aus Farbe + Icon, großer Titel
   games/
     game.dart               Beschreibung eines Spiels
     registry.dart           Liste aller Spiele
@@ -29,6 +32,6 @@ lib/
 
 1. Ordner `lib/games/<spielname>/` anlegen, z. B. als Kopie von `wer_faengt_an/`.
 2. Darin ein `Game(...)` definieren (Name, Beschreibung, Icon, Farbe,
-   Mindestspielerzahl) und den Spiel-Screen bauen. Der Screen bekommt die
+   Mindestspielerzahl, optional `isNew: true`) und den Spiel-Screen bauen. Der Screen bekommt die
    Spielerliste übergeben.
 3. Das Spiel in `lib/games/registry.dart` in `allGames` eintragen.
